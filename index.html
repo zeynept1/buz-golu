@@ -458,31 +458,93 @@ var CORE = (function () {
     if (AC && AC.state === 'suspended') AC.resume();
     return AC;
   }
-  function tone(freq, dur, type, vol, slide) {
-    var ac = audio(); if (!ac) return;
-    var o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+  // tüm sesler: yumuşak giriş → ana kanal (alçak geçiren filtre + kompresör) → hoparlör
+  var master = null, noiseBuf = null;
+  function out() {
+    var ac = audio(); if (!ac) return null;
+    if (!master) {
+      var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3800; lp.Q.value = 0.5;
+      var comp = ac.createDynamicsCompressor(); comp.threshold.value = -20; comp.knee.value = 18; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.2;
+      master = ac.createGain(); master.gain.value = 0.95;
+      master.connect(lp); lp.connect(comp); comp.connect(ac.destination);
+    }
+    return master;
+  }
+  function tone(freq, dur, type, vol, slide, opt) {
+    var ac = audio(), dst = out(); if (!ac || !dst) return;
+    opt = opt || {};
+    var o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + (opt.delay || 0), atk = opt.attack || 0.008;
     o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
-    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
-    g.gain.setValueAtTime(vol || 0.15, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur * (opt.slideT || 1));
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol || 0.15, t + atk); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(dst); o.start(t); o.stop(t + dur + 0.03);
+  }
+  function noise(dur, vol, freq, opt) {
+    var ac = audio(), dst = out(); if (!ac || !dst) return;
+    opt = opt || {};
+    if (!noiseBuf) {
+      noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+      var d = noiseBuf.getChannelData(0); for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    var src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), t = ac.currentTime + (opt.delay || 0);
+    src.buffer = noiseBuf; f.type = opt.type || 'lowpass'; f.frequency.setValueAtTime(freq, t); f.Q.value = opt.q || 0.7;
+    if (opt.sweep) f.frequency.exponentialRampToValueAtTime(opt.sweep, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + (opt.attack || 0.006)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(dst); src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.03);
+  }
+  // penguen ötüşü: kısa "pi" + vibratolu, alçalan "yuuu"
+  function squeak(pitch, vol) {
+    var ac = audio(), dst = out(); if (!ac || !dst) return;
+    var t = ac.currentTime, o = ac.createOscillator(), o2 = ac.createOscillator(), g = ac.createGain(), g2 = ac.createGain();
+    var lfo = ac.createOscillator(), lg = ac.createGain();
+    o.type = 'sine'; o2.type = 'triangle';
+    lfo.frequency.value = 13; lg.gain.value = 28 * pitch; lfo.connect(lg); lg.connect(o.frequency); lg.connect(o2.frequency);
+    [o, o2].forEach(function (os, k) {
+      var m = k ? 2 : 1;
+      os.frequency.setValueAtTime(1350 * pitch * m, t);
+      os.frequency.linearRampToValueAtTime(1750 * pitch * m, t + 0.06);
+      os.frequency.setValueAtTime(1650 * pitch * m, t + 0.1);
+      os.frequency.exponentialRampToValueAtTime(640 * pitch * m, t + 0.55);
+    });
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.015);
+    g.gain.linearRampToValueAtTime(vol * 0.35, t + 0.085); g.gain.linearRampToValueAtTime(vol, t + 0.12);
+    g.gain.setValueAtTime(vol, t + 0.32); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.58);
+    g2.gain.value = 0.12;
+    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(dst);
+    [o, o2, lfo].forEach(function (os) { os.start(t); os.stop(t + 0.62); });
   }
   var SFX = {
-    tap: function () { tone(660, 0.06, 'triangle', 0.1); },
-    grab: function () { tone(520, 0.08, 'sine', 0.12, 700); },
-    tick: function () { tone(1200 + Math.random() * 300, 0.03, 'triangle', 0.05); },
-    block: function () { tone(150, 0.1, 'sine', 0.16, 90); },
-    pocket: function () { tone(520, 0.1, 'sine', 0.16); setTimeout(function () { tone(780, 0.14, 'sine', 0.16); }, 70); },
-    boom: function () { tone(90, 0.5, 'sawtooth', 0.12, 40); tone(400, 0.3, 'sine', 0.1, 1200); },
-    splash: function () { tone(900, 0.12, 'sine', 0.1, 300); tone(200, 0.2, 'triangle', 0.08, 120); },
-    crack: function () { tone(1800, 0.05, 'square', 0.06); setTimeout(function () { tone(260, 0.18, 'sawtooth', 0.09, 90); tone(1400, 0.12, 'triangle', 0.07, 500); }, 60); },
-    bonk: function () { tone(520, 0.05, 'square', 0.09, 180); tone(95, 0.09, 'sine', 0.2, 60); },
-    boing: function () { tone(170, 0.28, 'sine', 0.16, 540); setTimeout(function () { tone(540, 0.22, 'sine', 0.1, 240); }, 90); },
-    plunge: function (i) { tone(1100 + i * 160, 0.09, 'triangle', 0.12, 1600 + i * 160); setTimeout(function () { tone(220, 0.4, 'sine', 0.22, 55); tone(900, 0.25, 'sawtooth', 0.04, 200); }, 70); },
-    fanfare: function () { [659, 784, 988, 1319].forEach(function (f, i) { setTimeout(function () { tone(f, 0.18, 'square', 0.07); tone(f / 2, 0.2, 'triangle', 0.08); }, i * 90); }); },
-    fail: function () { [440, 370, 311, 247].forEach(function (f, i) { setTimeout(function () { tone(f, 0.28, 'triangle', 0.14); }, i * 170); }); },
-    merge: function () { [523, 659, 784].forEach(function (f, i) { setTimeout(function () { tone(f, 0.16, 'triangle', 0.13); }, i * 60); }); },
-    unlock: function () { [660, 990].forEach(function (f, i) { setTimeout(function () { tone(f, 0.12, 'square', 0.07); }, i * 90); }); },
-    win: function () { [523, 659, 784, 1046].forEach(function (f, i) { setTimeout(function () { tone(f, 0.22, 'triangle', 0.15); }, i * 110); }); }
+    tap: function () { tone(520, 0.08, 'sine', 0.1); },
+    grab: function () { tone(330, 0.1, 'sine', 0.12, 440); },
+    tick: function () { tone(900, 0.04, 'sine', 0.04); },
+    block: function () { tone(130, 0.12, 'sine', 0.14, 85); },
+    step: function (vol, alt) {
+      var f = (alt ? 128 : 112) + Math.random() * 14;
+      tone(f, 0.13, 'sine', 0.38 * vol, f * 0.55, { attack: 0.004 });
+      noise(0.07, 0.08 * vol, 420, { attack: 0.003 });
+    },
+    bonk: function () {
+      tone(290, 0.26, 'sine', 0.3, 105, { attack: 0.003, slideT: 0.7 });
+      tone(145, 0.3, 'sine', 0.2, 80, { attack: 0.004 });
+      tone(580, 0.07, 'triangle', 0.04, 260, { attack: 0.002 });
+      noise(0.05, 0.05, 900, { attack: 0.002 });
+    },
+    squeak: function (i) { squeak(1 + Math.min(i, 5) * 0.07, 0.11); },
+    splash: function () {
+      noise(0.38, 0.2, 1400, { sweep: 300, attack: 0.004 });
+      tone(95, 0.28, 'sine', 0.22, 50, { attack: 0.004 });
+    },
+    plunge: function () { SFX.splash(); },
+    pocket: function () { tone(440, 0.12, 'sine', 0.15); tone(660, 0.16, 'sine', 0.14, null, { delay: 0.07 }); },
+    boom: function () { tone(80, 0.5, 'sine', 0.22, 40); noise(0.4, 0.12, 600, { sweep: 120 }); },
+    crack: function () { noise(0.12, 0.12, 2400, { type: 'bandpass', q: 1.2, sweep: 900 }); tone(180, 0.18, 'sine', 0.12, 90, { delay: 0.03 }); },
+    unlock: function () { tone(523, 0.14, 'triangle', 0.08); tone(784, 0.18, 'triangle', 0.08, null, { delay: 0.09 }); },
+    boing: function () { tone(170, 0.3, 'sine', 0.16, 460, { slideT: 0.5 }); tone(460, 0.24, 'sine', 0.08, 230, { delay: 0.09 }); },
+    merge: function () { [392, 494, 587].forEach(function (f, i) { tone(f, 0.18, 'triangle', 0.1, null, { delay: i * 0.06 }); }); },
+    fanfare: function () { [523, 659, 784, 1046].forEach(function (f, i) { tone(f, 0.22, 'triangle', 0.09, null, { delay: i * 0.09 }); tone(f / 2, 0.24, 'sine', 0.08, null, { delay: i * 0.09 }); }); },
+    fail: function () { [392, 330, 294, 247].forEach(function (f, i) { tone(f, 0.3, 'triangle', 0.12, null, { delay: i * 0.17 }); }); },
+    win: function () { [523, 659, 784, 1046].forEach(function (f, i) { tone(f, 0.24, 'triangle', 0.13, null, { delay: i * 0.11 }); }); },
+    whoosh: function () { noise(0.2, 0.06, 400, { sweep: 1600 }); }
   };
   function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
 
@@ -1222,7 +1284,7 @@ var CORE = (function () {
           var old = null; cur.chains[sel.ci].forEach(function (o) { if (o.id === b.id) old = o; });
           if (old && old.cell !== b.cell) { var p = cellPos(b.cell); balls[b.id].userData.wp.push({ x: p.x, z: p.z }); }
         });
-        SFX.tick();
+        if (!PEN) SFX.tick();
         return true;
       }
     }
@@ -1230,7 +1292,7 @@ var CORE = (function () {
     if (!r) return false;
     var prev = state;
     if (r.ev.type === 'move') {
-      sel.stack.push(prev); state = r.state; applyMoveVisual(prev, state, sel.ci); SFX.tick();
+      sel.stack.push(prev); state = r.state; applyMoveVisual(prev, state, sel.ci); if (!PEN) SFX.tick();
       if (prev.grid.join('') !== state.grid.join('')) { sel.stack = []; syncCells(); }
       return true;
     }
@@ -1290,7 +1352,7 @@ var CORE = (function () {
             afterEvent();
           }
         } };
-        if (PEN) wpS.t0 = performance.now() + i * 190;
+        if (PEN) { wpS.t0 = performance.now() + i * 190; wpS.i = i; }
         m.userData.wp.push(wpS);
       });
       linkMeshes.forEach(function (lk) { seq.forEach(function (b) { if (lk.userData.a === b.id) lk.userData.fade = true; }); });
@@ -1355,7 +1417,7 @@ var CORE = (function () {
     }
   }
   function splashBig(dest, color, i) {
-    SFX.plunge(i); buzz([25, 20, 35]);
+    SFX.splash(); buzz([25, 20, 35]);
     // su fışkırması
     var gey = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.34, 1, 16, 1, true), new THREE.MeshStandardMaterial({ color: col('#d6f1ff'), roughness: 0.1, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
     gey.position.set(dest.x, 0, dest.z); fx.add(gey);
@@ -1781,7 +1843,7 @@ var CORE = (function () {
   $('nextBtn').onclick = function () { SFX.tap(); loadLevel(lvIndex >= LEVELS.length - 1 ? 0 : lvIndex + 1); };
 
   // ---------------- döngü ----------------
-  var last = performance.now(), up = new THREE.Vector3();
+  var last = performance.now(), up = new THREE.Vector3(), lastStepSound = 0;
   function frame(now) {
     var dt = Math.min(0.05, (now - last) / 1000); last = now;
     for (var i = tweens.length - 1; i >= 0; i--) {
@@ -1812,6 +1874,7 @@ var CORE = (function () {
             (function (mm, ww) {
               if (PEN) {
                 var s1 = PEN_BASE, r0 = mm.rotation.y, splashed = false;
+                setTimeout(function () { SFX.squeak(ww.i || 0); }, 90);
                 tween(0.5, function (kk) {
                   var bd = mm.userData.body;
                   if (kk < 0.2) {
@@ -1854,6 +1917,17 @@ var CORE = (function () {
         u.lean += u.leanV * dt;
         u.body.rotation.x = u.lean;
         u.body.rotation.z = Math.sin(u.walk * Math.PI * 2.2) * 0.22 * u.move;
+        var stepN = Math.floor(u.walk * 2.2);
+        if (u.lastStep === undefined) u.lastStep = stepN;
+        if (stepN !== u.lastStep) {
+          u.lastStep = stepN;
+          if (now - lastStepSound > 60) {
+            lastStepSound = now;
+            var leadId = -1;
+            if (dragSel && state.chains[dragSel.ci]) { var dc = state.chains[dragSel.ci]; leadId = (dragSel.end === 0 ? dc[0] : dc[dc.length - 1]).id; }
+            SFX.step(+id === leadId ? 1 : 0.55, stepN % 2 === 0);
+          }
+        }
         u.body.position.y = Math.abs(Math.sin(u.walk * Math.PI * 2.2)) * 0.06 * u.move;
         // bayrak her yönde kameraya dönük kalsın ve hafifçe dalgalansın
         u.flag.rotation.y = -m.rotation.y - u.body.rotation.y;
