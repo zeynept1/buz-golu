@@ -494,14 +494,14 @@ var CORE = (function () {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputEncoding = THREE.sRGBEncoding;
   var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
+  var camera = new THREE.PerspectiveCamera(30, 1, 3, 80);
   scene.add(new THREE.HemisphereLight(T.light.sky, T.light.ground, T.light.hemi));
   var sun = new THREE.DirectionalLight(0xffffff, T.light.sun);
   sun.position.set(-4, 14, 7);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   var sc = sun.shadow.camera; sc.left = -9; sc.right = 9; sc.top = 9; sc.bottom = -9; sc.near = 1; sc.far = 40;
-  sun.shadow.bias = -0.0015;
+  sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.03;
   scene.add(sun);
   var world = new THREE.Group(); scene.add(world);
   var fx = new THREE.Group(); scene.add(fx);
@@ -589,6 +589,7 @@ var CORE = (function () {
     return PG;
   }
   var PEN_SCALE = { 1: 0.8, 2: 1.02, 3: 1.22 };
+  var PEN_BASE = 0.95; // penguenin tek gerçek boyu; animasyonlar hep buna döner
   function penguinMesh(c, l, ice) {
     var G = penguinGeos(), g = new THREE.Group(), body = new THREE.Group(); g.add(body);
     var navy = mat('#1d2742', { rough: 0.55 }), white = mat('#f7f9fc', { rough: 0.7 }), orange = mat('#f59e0b', { rough: 0.5 }), cc = mat(BALL_COLORS[c], { rough: 0.85 });
@@ -610,7 +611,7 @@ var CORE = (function () {
     var cloth = mesh(new THREE.BoxGeometry(0.34, 0.22, 0.014), mat(BALL_COLORS[c], { rough: 0.7 })); cloth.position.set(0.17, 0.5, 0); flag.add(cloth);
     var tip = mesh(new THREE.SphereGeometry(0.032, 8, 6), mat('#fbbf24', { rough: 0.3, metal: 0.4 })); tip.position.y = 0.67; flag.add(tip);
     flag.position.set(0.29, 0.14, 0.02); body.add(flag);
-    g.scale.setScalar(0.95);
+    g.scale.setScalar(PEN_BASE);
     g.userData = { wp: [], lift: 0, body: body, face: 0, walk: 0, move: 0, level: l, flag: flag, cloth: cloth };
     if (ice) {
       var block = new THREE.Group();
@@ -702,7 +703,7 @@ var CORE = (function () {
     var B = T.board, g = new THREE.Group();
     var top = new THREE.Mesh(new THREE.PlaneGeometry(L.w, L.h), new THREE.MeshStandardMaterial({ map: feltTexture(), roughness: 0.95 }));
     top.rotation.x = -Math.PI / 2; top.receiveShadow = true; g.add(top);
-    var base = mesh(new THREE.BoxGeometry(L.w + 0.1, 0.5, L.h + 0.1), mat(B.under)); base.position.y = -0.251; g.add(base);
+    var base = mesh(new THREE.BoxGeometry(L.w + 0.1, 0.5, L.h + 0.1), mat(B.under)); base.position.y = -0.27; g.add(base);
 
     var rimW = T.style === 'table' ? 0.8 : 0.45;
     var ow = L.w / 2 + rimW, oh = L.h / 2 + rimW, rr = T.style === 'table' ? 0.5 : 0.42;
@@ -814,12 +815,12 @@ var CORE = (function () {
       var lab = labelMesh(0.34); lab.position.set(0.3, 0.07, 0.3); g.add(lab); v.label = lab;
     } else {
       var water = mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.02, 32), mat('#0c2a45', { rough: 0.15, metal: 0.3 }), false);
-      water.position.y = 0.01; g.add(water);
+      water.position.y = 0.015; g.add(water);
       var rimG = new THREE.TorusGeometry(0.42, 0.07, 6, 14);
       var rim = mesh(rimG, mat('#ffffff', { rough: 0.5, flat: true }));
       rim.rotation.x = -Math.PI / 2; rim.position.y = 0.03; g.add(rim);
       var ring = mesh(new THREE.TorusGeometry(0.3, 0.035, 8, 32), mat(c, { rough: 0.4, emissive: c, ei: 0.35 }), false);
-      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.025; g.add(ring); v.ring = ring;
+      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; g.add(ring); v.ring = ring;
       var flag = new THREE.Group();
       var pole = mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.55, 6), mat('#6b4a2e'));
       pole.position.y = 0.28; flag.add(pole);
@@ -828,7 +829,7 @@ var CORE = (function () {
       flag.position.set(0.33, 0, -0.33); g.add(flag); v.flag = flag;
       var lab2 = labelMesh(PEN ? 0.62 : 0.32); lab2.position.set(PEN ? -0.3 : -0.28, 0.2, PEN ? 0.36 : 0.3); g.add(lab2); v.label = lab2;
       var frozen = mesh(new THREE.CylinderGeometry(0.44, 0.46, 0.05, 28), mat('#8fc3e6', { rough: 0.15, metal: 0.1 }), false);
-      frozen.position.y = 0.025; frozen.visible = false; g.add(frozen); v.frozen = frozen;
+      frozen.position.y = 0.035; frozen.visible = false; g.add(frozen); v.frozen = frozen;
     }
     g.position.set(p.x, 0, p.z);
     return v;
@@ -893,26 +894,27 @@ var CORE = (function () {
     var p = cellPos(cell), g = new THREE.Group();
     if (ch === 'c') {
       var thin = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.03, 0.96), new THREE.MeshStandardMaterial({ map: thinTex(), roughness: 0.2, transparent: true, opacity: 0.88 }));
-      thin.position.y = 0.016; thin.receiveShadow = true; g.add(thin);
+      thin.position.y = 0.024; thin.receiveShadow = true; g.add(thin);
     } else if (ch === 'w') {
-      var water = mesh(new THREE.BoxGeometry(1.0, 0.02, 1.0), mat('#15507a', { rough: 0.1, metal: 0.35 }), false);
-      water.position.y = 0.012; water.receiveShadow = true; g.add(water);
+      var water = mesh(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#15507a', { rough: 0.1, metal: 0.35 }), false);
+      water.position.y = 0.02; water.receiveShadow = true; g.add(water);
       var rip = mesh(new THREE.TorusGeometry(0.22, 0.012, 6, 28), new THREE.MeshBasicMaterial({ color: col('#bfe6ff'), transparent: true, opacity: 0.5, depthWrite: false }), false);
-      rip.rotation.x = -Math.PI / 2; rip.position.y = 0.03; g.add(rip); g.userData.ripple = rip;
+      rip.rotation.x = -Math.PI / 2; rip.position.y = 0.045; g.add(rip); g.userData.ripple = rip;
     } else if (ch === 'f') {
       var br = mesh(roundedBox(0.92, 0.92, 0.07, 0.1), mat('#8cc8ee', { rough: 0.25 }));
       br.position.y = 0; g.add(br);
-      var water2 = mesh(new THREE.BoxGeometry(1.0, 0.012, 1.0), mat('#15507a', { rough: 0.1, metal: 0.35 }), false);
-      water2.position.y = 0.006; g.add(water2);
+      var water2 = mesh(new THREE.BoxGeometry(0.98, 0.012, 0.98), mat('#15507a', { rough: 0.1, metal: 0.35 }), false);
+      water2.position.y = 0.012; g.add(water2);
+      br.position.y = 0.02;
     } else if (CORE.ARROW[ch] !== undefined) {
       var pad = mesh(new THREE.BoxGeometry(0.94, 0.02, 0.94), mat('#d7efff', { rough: 0.3 }), false);
-      pad.position.y = 0.011; pad.receiveShadow = true; g.add(pad);
+      pad.position.y = 0.016; pad.receiveShadow = true; g.add(pad);
       var ar = mesh(arrowGeo(), mat('#2b8fd6', { rough: 0.4, emissive: '#2b8fd6', ei: 0.25 }), false);
-      ar.position.y = 0.022; ar.rotation.y = -CORE.ARROW[ch] * Math.PI / 2; g.add(ar); g.userData.arrow = ar;
+      ar.position.y = 0.04; ar.rotation.y = -CORE.ARROW[ch] * Math.PI / 2; g.add(ar); g.userData.arrow = ar;
       // okun yanlarına minik kar izleri
       [-1, 1].forEach(function (sd) {
         var st = mesh(new THREE.BoxGeometry(0.05, 0.02, 0.5), mat('#ffffff', { rough: 0.9 }), false);
-        st.position.set(sd * 0.36, 0.022, 0); st.rotation.y = -CORE.ARROW[ch] * Math.PI / 2;
+        st.position.set(sd * 0.36, 0.04, 0); st.rotation.y = -CORE.ARROW[ch] * Math.PI / 2;
         st.position.applyAxisAngle(new THREE.Vector3(0, 1, 0), -CORE.ARROW[ch] * Math.PI / 2); g.add(st);
       });
     } else if (ch === 'p') {
@@ -1036,14 +1038,14 @@ var CORE = (function () {
     // önce titreşim, sonra parçalanma
     tween(0.35, function (k) { blk.position.x = Math.sin(k * 60) * 0.04 * (1 - k); blk.scale.setScalar(1 + k * 0.06); }, function () {
       blk.visible = false; blk.position.x = 0; blk.scale.setScalar(1);
-      for (var i = 0; i < 10; i++) {
+      for (var i = 0; i < 5; i++) {
         var shard = new THREE.Mesh(new THREE.TetrahedronGeometry(0.09 + Math.random() * 0.1, 0), mat('#cfeaff', { rough: 0.1, metal: 0.2, transparent: true, opacity: 0.9 }));
         shard.position.set(m.position.x + (Math.random() - 0.5) * 0.6, 0.3 + Math.random() * 0.7, m.position.z + (Math.random() - 0.5) * 0.6);
         var a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 2.5;
         shard.userData = { v: new THREE.Vector3(Math.cos(a) * sp, 2 + Math.random() * 3, Math.sin(a) * sp), life: 0.9, age: 0, rot: true };
         fx.add(shard); particles.push(shard);
       }
-      burst(m.position.x, 0.8, m.position.z, '#ffffff', 16, 2.4);
+
       tween(0.4, function (k) { u.body.position.y = Math.sin(k * Math.PI) * 0.35; }, function () { u.body.position.y = 0; });
     });
   }
@@ -1262,8 +1264,7 @@ var CORE = (function () {
     ca.userData.face = Math.atan2(cb.position.x - ca.position.x, cb.position.z - ca.position.z);
     cb.userData.face = Math.atan2(ca.position.x - cb.position.x, ca.position.z - cb.position.z);
     var cx = (ca.position.x + cb.position.x) / 2, cz = (ca.position.z + cb.position.z) / 2;
-    burst(cx, 0.9, cz, '#ff7aa8', 10, 1.4);
-    burst(cx, 0.7, cz, '#ffffff', 10, 2);
+    burst(cx, 0.7, cz, '#ffffff', 5, 1.4);
     refreshTargets(false);
     if (ch.length === L.count[ch[0].c]) setTimeout(function () { SFX.unlock(); }, 250);
   }
@@ -1354,9 +1355,7 @@ var CORE = (function () {
     }
   }
   function splashBig(dest, color, i) {
-    dropParticles(dest, color);
     SFX.plunge(i); buzz([25, 20, 35]);
-    shake = Math.max(shake, 0.12 + i * 0.02);
     // su fışkırması
     var gey = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.34, 1, 16, 1, true), new THREE.MeshStandardMaterial({ color: col('#d6f1ff'), roughness: 0.1, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
     gey.position.set(dest.x, 0, dest.z); fx.add(gey);
@@ -1367,26 +1366,13 @@ var CORE = (function () {
       gey.scale.set(1 + k * 0.6, hgt, 1 + k * 0.6); gey.position.y = hgt / 2; gey.material.opacity = 0.85 * (1 - k);
       cap.position.set(dest.x, hgt, dest.z); cap.scale.setScalar(1 + k * 1.5); cap.material.opacity = 0.9 * (1 - k);
     }, function () { fx.remove(gey); fx.remove(cap); gey.geometry.dispose(); gey.material.dispose(); cap.geometry.dispose(); cap.material.dispose(); });
-    // halka dalgalar ve damlalar
-    [0, 140, 300].forEach(function (dl, n) { setTimeout(function () { shockwave(dest.x, dest.z, n === 1 ? color : '#e6f7ff'); }, dl); });
-    burst(dest.x, 0.4, dest.z, '#bfe6ff', 26, 3.2);
-    burst(dest.x, 0.6, dest.z, color, 12, 2.4);
-    burst(dest.x, 1.2, dest.z, '#ffffff', 8, 1.5);
+    // birkaç su damlası
+    burst(dest.x, 0.5, dest.z, '#bfe6ff', 6, 1.6);
     var tv = targetViews[L.tmap[(Math.round(dest.z + (L.h - 1) / 2)) * L.w + Math.round(dest.x + (L.w - 1) / 2)]];
     if (tv) tween(0.35, function (k) { var sc2 = 1 + Math.sin(k * Math.PI) * 0.35; tv.g.scale.set(sc2, 1, sc2); }, function () { tv.g.scale.set(1, 1, 1); });
   }
   function finale(dest, color) {
-    SFX.fanfare(); buzz([40, 30, 40, 30, 80]);
-    shake = Math.max(shake, 0.28);
-    shockwave(dest.x, dest.z, color);
-    setTimeout(function () { shockwave(dest.x, dest.z, '#fbbf24'); }, 120);
-    for (var s2 = 0; s2 < 30; s2++) {
-      var a2 = Math.random() * Math.PI * 2, sp2 = 2 + Math.random() * 3;
-      sparkle(dest.x, 0.5, dest.z, ['#fde68a', '#ffffff', color][s2 % 3], { v: new THREE.Vector3(Math.cos(a2) * sp2, 3 + Math.random() * 3, Math.sin(a2) * sp2), g: 5, life: 1.0, s0: 0.3 + Math.random() * 0.25 });
-    }
-    ['#fbbf24', '#ffffff', color, '#ff7aa8', '#8fd0ff'].forEach(function (cc, n) {
-      setTimeout(function () { burst(dest.x, 1.0, dest.z, cc, 14, 4); }, n * 70);
-    });
+    SFX.fanfare(); buzz([40, 30, 60]);
   }
   function implode(ev, dest, color) {
     SFX.boom(); buzz([30, 30, 60]);
@@ -1574,28 +1560,20 @@ var CORE = (function () {
     var dxw = CORE.DX[d], dzw = CORE.DY[d], hu = hm.userData, ou = om.userData;
     hu.face = Math.atan2(dxw, dzw);
     SFX.bonk(); buzz(18);
-    shake = Math.max(shake, 0.05);
     tween(0.2, function (k) {
       var off = k < 0.3 ? (k / 0.3) * 0.3 : Math.max(-0.05, 0.3 - (k - 0.3) / 0.35 * 0.35) * (k > 0.65 ? (1 - k) / 0.35 : 1);
       var r = hm.rotation.y, wx2 = dxw * off, wz2 = dzw * off;
       hu.body.position.x = wx2 * Math.cos(r) - wz2 * Math.sin(r);
       hu.body.position.z = wx2 * Math.sin(r) + wz2 * Math.cos(r);
     }, function () { hu.body.position.x = 0; hu.body.position.z = 0; });
-    var s0 = om.scale.x;
     setTimeout(function () {
       tween(0.22, function (k) {
         var r2 = om.rotation.y, push2 = Math.sin(k * Math.PI) * 0.12;
         ou.body.rotation.z = Math.sin(k * Math.PI * 7) * 0.4 * (1 - k);
         ou.body.position.x = dxw * push2 * Math.cos(r2) - dzw * push2 * Math.sin(r2);
         ou.body.position.z = dxw * push2 * Math.sin(r2) + dzw * push2 * Math.cos(r2);
-        om.scale.set(s0 * (1 + 0.12 * Math.sin(k * Math.PI)), s0 * (1 - 0.14 * Math.sin(k * Math.PI)), s0 * (1 + 0.12 * Math.sin(k * Math.PI)));
-      }, function () { ou.body.rotation.z = 0; ou.body.position.x = 0; ou.body.position.z = 0; om.scale.setScalar(s0); });
+      }, function () { ou.body.rotation.z = 0; ou.body.position.x = 0; ou.body.position.z = 0; om.scale.setScalar(PEN_BASE); });
     }, 55);
-    var mx = (hm.position.x + om.position.x) / 2, mz = (hm.position.z + om.position.z) / 2;
-    setTimeout(function () {
-      burst(mx, 0.55, mz, '#ffffff', 7, 1.6);
-      for (var i = 0; i < 4; i++) sparkle(mx, 0.6, mz, '#fde68a', { v: new THREE.Vector3((Math.random() - 0.5) * 3, 1.5 + Math.random(), (Math.random() - 0.5) * 3), g: 6, life: 0.35, s0: 0.28 });
-    }, 50);
   }
 
   function release() { if (dragSel) endDrag(false); }
@@ -1761,7 +1739,7 @@ var CORE = (function () {
     var last = lvIndex >= LEVELS.length - 1;
     $('nextBtn').textContent = last ? 'BAŞA DÖN' : 'SONRAKİ BÖLÜM ▶';
     $('winTitle').textContent = last ? 'HEPSİ BİTTİ!' : T.winTitle;
-    for (var c = 0; c < 6; c++) burst((Math.random() - 0.5) * L.w, 1.2, (Math.random() - 0.5) * L.h, BALL_COLORS[1 + c], 14, 3.5);
+    if (!PEN) for (var c = 0; c < 6; c++) burst((Math.random() - 0.5) * L.w, 1.2, (Math.random() - 0.5) * L.h, BALL_COLORS[1 + c], 14, 3.5);
     showModal('win');
   }
   function loadLevel(i, again) {
@@ -1833,7 +1811,7 @@ var CORE = (function () {
             u.sinking = true;
             (function (mm, ww) {
               if (PEN) {
-                var s1 = mm.scale.x, r0 = mm.rotation.y, splashed = false;
+                var s1 = PEN_BASE, r0 = mm.rotation.y, splashed = false;
                 tween(0.5, function (kk) {
                   var bd = mm.userData.body;
                   if (kk < 0.2) {
@@ -1896,7 +1874,7 @@ var CORE = (function () {
     });
     if (selRing && selRing.visible && dragSel) {
       var ch = state.chains[dragSel.ci];
-      if (ch) { var hb = balls[(dragSel.end === 0 ? ch[0] : ch[ch.length - 1]).id]; selRing.position.set(hb.position.x, 0.03, hb.position.z); selRing.scale.setScalar(1 + 0.08 * Math.sin(now / 120)); }
+      if (ch) { var hb = balls[(dragSel.end === 0 ? ch[0] : ch[ch.length - 1]).id]; selRing.position.set(hb.position.x, 0.07, hb.position.z); selRing.scale.setScalar(1 + 0.08 * Math.sin(now / 120)); }
     }
     for (var j = particles.length - 1; j >= 0; j--) {
       var p = particles[j], pu = p.userData;
@@ -1933,14 +1911,10 @@ var CORE = (function () {
           ud.button.material = pressed ? mat('#fbbf24', { rough: 0.35, emissive: '#fbbf24', ei: 0.9 }) : mat('#fbbf24', { rough: 0.35, emissive: '#fbbf24', ei: 0.15 });
         }
         if (ud.ripple) { var ph = (t * 0.6 + (+ck) * 0.37) % 1; ud.ripple.scale.setScalar(0.4 + ph * 1.6); ud.ripple.material.opacity = 0.5 * (1 - ph); }
-        if (ud.arrow) ud.arrow.position.y = 0.022 + Math.max(0, Math.sin(t * 3 + (+ck))) * 0.01;
+        if (ud.arrow) ud.arrow.position.y = 0.04 + Math.max(0, Math.sin(t * 3 + (+ck))) * 0.01;
       }
     }
     for (var key in wallMeshes) { var wm = wallMeshes[key]; if (wm.userData.spin) wm.userData.spin.rotation.y = t * 0.3 + (+key); }
-    if (shake > 0.002) {
-      camera.position.set(camBase.x + (Math.random() - 0.5) * shake, camBase.y + (Math.random() - 0.5) * shake, camBase.z + (Math.random() - 0.5) * shake);
-      shake *= Math.exp(-dt * 7);
-    } else if (shake > 0) { shake = 0; camera.position.copy(camBase); }
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
