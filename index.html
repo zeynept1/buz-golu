@@ -172,7 +172,7 @@ var CORE = (function () {
   //  'w' su (geçilmez), 'f' suya itilmiş kütleden köprü (zemin)
   //  '^' '>' 'v' '<' tek yönlü kaydırak: yalnız ok yönünde girilir
   //  'p' basınç plakası, 'G' buz kapısı: plakada penguen varken açık
-  //  'b' itilebilir buz kütlesi: '.', 'f' ya da 'w' hücresine itilir; suya giderse köprü olur
+  //  'b' itilebilir buz kütlesi: '.', 'f' ya da 'w' hücresine itilir; suya giderse köprü olur, köprüye çıkarsa 'B'
   var ARROW = { '^': 0, '>': 1, 'v': 2, '<': 3 };
   function plateOn(S) {
     for (var i = 0; i < S.chains.length; i++) {
@@ -226,7 +226,7 @@ var CORE = (function () {
     if (ARROW[g] !== undefined && ARROW[g] !== d) return null;
     if (g === 'G' && !plateOn(S) && !occupant(S, t)) return null;
     var push = -1;
-    if (g === 'b') {
+    if (g === 'b' || g === 'B') {   // 'B' = köprünün üstünde duran kütle
       var bx = nx + DX[d], by = ny + DY[d];
       if (bx < 0 || by < 0 || bx >= L.w || by >= L.h) return null;
       var b2 = by * L.w + bx, g2 = S.grid[b2];
@@ -287,7 +287,10 @@ var CORE = (function () {
     N.chains[ci] = end === 0 ? ns : ns.reverse();
     if (L.mode === 'penguin') {
       breakThin(S, N, seq[seq.length - 1].cell);
-      if (push >= 0) { N.grid[t] = '.'; N.grid[push] = S.grid[push] === 'w' ? 'f' : 'b'; }
+      if (push >= 0) {
+        N.grid[t] = g === 'B' ? 'f' : '.';                       // köprüdeki kütle gidince köprü kalır
+        N.grid[push] = S.grid[push] === 'w' ? 'f' : S.grid[push] === 'f' ? 'B' : 'b';
+      }
     }
     return { state: N, ev: { type: 'move', ci: ci, push: push >= 0 ? { from: t, to: push, fill: S.grid[push] === 'w' } : null } };
   }
@@ -1035,9 +1038,13 @@ var CORE = (function () {
       g.add(bars); g.userData.bars = bars;
       var sill = mesh(new THREE.BoxGeometry(0.9, 0.03, 0.3), mat('#35587a', { rough: 0.6 }), false);
       sill.position.y = 0.015; g.add(sill);
-    } else if (ch === 'b') {
+    } else if (ch === 'b' || ch === 'B') {
+      if (ch === 'B') {                                   // köprünün üstünde duran kütle
+        var br2 = mesh(roundedBox(0.92, 0.92, 0.07, 0.1), mat('#8cc8ee', { rough: 0.25 }));
+        br2.position.y = 0.02; g.add(br2);
+      }
       var blk = mesh(roundedBox(0.84, 0.84, 0.72, 0.1), mat('#6ec1f0', { rough: 0.12, metal: 0.15 }));
-      g.add(blk);
+      blk.position.y = ch === 'B' ? 0.08 : 0; g.add(blk);
       var shine = mesh(roundedBox(0.6, 0.6, 0.04, 0.08), mat('#dff3ff', { rough: 0.2 }), false);
       shine.position.y = 0.72; g.add(shine);
       [0, 1, 2, 3].forEach(function (d) {
@@ -1062,8 +1069,9 @@ var CORE = (function () {
     for (var i = 0; i < state.grid.length; i++) {
       var a = shownGrid[i], b = state.grid[i];
       if (a === b) continue;
-      if (a === 'b' && b !== 'b') froms.push(i);
-      else if ((b === 'b' || b === 'f') && a !== 'b') tos.push(i);
+      var aB = a === 'b' || a === 'B', bB = b === 'b' || b === 'B';
+      if (aB && !bB) froms.push(i);
+      else if ((bB || b === 'f') && !aB) tos.push(i);
       else if (a === 'c' && b === 'w') breakThinVisual(i);
       else placeCell(i);
     }
@@ -1097,20 +1105,39 @@ var CORE = (function () {
     var blk = cellViews[fi], to = cellPos(ti), fill = state.grid[ti] === 'f';
     delete cellViews[fi];
     if (!blk) { placeCell(ti); return; }
-    var x0 = blk.position.x, z0 = blk.position.z;
+    var water = fill ? cellViews[ti] : null;
+    if (state.grid[fi] === 'f') placeCell(fi);   // kütle köprüden ayrıldıysa köprü yeniden çizilir
+    // kütlenin yeni karesi hemen kaydedilir; hareket kare döngüsünde yapılır,
+    // böylece hızlı üst üste itmelerde kütle ikiye bölünmez
+    cellViews[ti] = blk;
+    var u = blk.userData;
+    u.tx = to.x; u.tz = to.z; u.fillAt = fill ? ti : -1; u.water = water;
     SFX.block();
-    tween(0.16, function (k) { blk.position.x = x0 + (to.x - x0) * k; blk.position.z = z0 + (to.z - z0) * k; }, function () {
-      if (!fill) { cellViews[ti] = blk; return; }
-      // suya düştü: batıp köprü olur
-      SFX.splash(); buzz(25);
-      burst(to.x, 0.2, to.z, '#bfe6ff', 16, 2);
-      tween(0.3, function (k) { blk.position.y = -k * 0.66; }, function () {
-        boardGroup.remove(blk);
-        if (cellViews[ti]) boardGroup.remove(cellViews[ti]);
-        var v = specialCell(ti, 'f'); boardGroup.add(v); cellViews[ti] = v;
-      });
-    });
-    if (fill && cellViews[ti]) { var wv = cellViews[ti]; setTimeout(function () { boardGroup.remove(wv); }, 480); }
+  }
+  function moveBlocks(dt) {
+    for (var key in cellViews) {
+      var m = cellViews[key], u = m.userData;
+      if (u.tx === undefined || u.sinking) continue;
+      var dx = u.tx - m.position.x, dz = u.tz - m.position.z, d = Math.hypot(dx, dz), step = 7 * dt;
+      if (d <= step) {
+        m.position.x = u.tx; m.position.z = u.tz; u.tx = undefined;
+        if (u.fillAt >= 0) {
+          u.sinking = true;
+          var ti = u.fillAt, wv = u.water;
+          SFX.splash(); buzz(25);
+          burst(m.position.x, 0.2, m.position.z, '#bfe6ff', 16, 2);
+          (function (blk2, ti2, wv2) {
+            tween(0.3, function (k) { blk2.position.y = -k * 0.66; }, function () {
+              boardGroup.remove(blk2);
+              if (wv2) boardGroup.remove(wv2);
+              if (cellViews[ti2] === blk2) {
+                var v = specialCell(ti2, 'f'); boardGroup.add(v); cellViews[ti2] = v;
+              }
+            });
+          })(m, ti, wv);
+        }
+      } else { m.position.x += dx / d * step; m.position.z += dz / d * step; }
+    }
   }
 
   function refreshIce(anim) {
@@ -1250,16 +1277,17 @@ var CORE = (function () {
     var W = window.innerWidth, H = window.innerHeight;
     renderer.setSize(W, H, false);
     // penguen modunda dar açılı lens: alt ve üst kenar genişliği birbirine yaklaşır, tahta daha büyük görünür
-    camera.fov = PEN ? 17 : 30;
-    camera.near = PEN ? 8 : 3;
+    camera.fov = PEN ? 11 : 30;
+    camera.near = PEN ? 12 : 3;
     camera.aspect = W / H; camera.updateProjectionMatrix();
     if (!L) return;
-    var topPx = $('hud').offsetHeight + 52, botPx = $('bottom').offsetHeight + 18;
-    var tilt = PEN ? 0.58 : 0.36;
-    var m = T.style === 'table' ? 1.05 : 0.5;          // çerçeve (ve bilardo cepleri) payı
-    var hx = L.w / 2 + m, hz = L.h / 2 + m, top = PEN ? 1.05 : 0.5;
+    var topPx = $('hud').offsetHeight + 52, botPx = PEN ? $('bottom').offsetHeight * 0.45 + 10 : $('bottom').offsetHeight + 18;
+    var tilt = PEN ? 0.5 : 0.36;
+    // penguen modunda ahşap çerçeve kenardan taşabilir; ekrana sığması gereken sadece oyun kareleri
+    var m = T.style === 'table' ? 1.05 : PEN ? 0.14 : 0.5;
+    var hx = L.w / 2 + m, hz = L.h / 2 + m, top = PEN ? 1.0 : 0.5;
     fitPts = [[-hx, 0, -hz], [hx, 0, -hz], [-hx, 0, hz], [hx, 0, hz], [-hx, top, -hz + m], [hx, top, -hz + m], [-hx, -0.35, hz], [hx, -0.35, hz]];
-    var sidePx = 8, lo = 4, hi = 220;
+    var sidePx = PEN ? 2 : 8, lo = 4, hi = 400;
     for (var it = 0; it < 28; it++) {
       var mid = (lo + hi) / 2, ok = true;
       placeCam(mid, tilt, topPx, botPx, H);
@@ -2015,6 +2043,7 @@ var CORE = (function () {
         u.cloth.rotation.y = Math.sin(now / 260 + (+id)) * 0.25;
       }
     }
+    moveBlocks(dt);
     linkMeshes.forEach(function (lk) {
       if (lk.userData.rope) { updateRope(lk, dt, now); return; }
       var a = balls[lk.userData.a], b = balls[lk.userData.b];
@@ -2076,6 +2105,23 @@ var CORE = (function () {
 
   // test için
   window.GAME = {
+    blockCheck: function () {
+      var errs = [], seen = {};
+      for (var k in cellViews) {
+        var ch = state.grid[k], v = cellViews[k];
+        if (v.userData.sinking) continue;
+        var isB = function (x) { return x === 'b' || x === 'B'; };
+        if (isB(ch) && !isB(v.userData.ch)) errs.push('kare ' + k + ': durum ' + ch + ', çizim ' + v.userData.ch);
+        if (isB(v.userData.ch) && !isB(ch)) errs.push('kare ' + k + ': çizim kütle, durum ' + ch);
+        if (isB(v.userData.ch) && CORE.occupant(state, +k)) errs.push('kare ' + k + ': penguen kütlenin içinde');
+        seen[k] = 1;
+      }
+      var gridB = 0, drawB = 0;
+      for (var i = 0; i < state.grid.length; i++) if (state.grid[i] === 'b' || state.grid[i] === 'B') gridB++;
+      boardGroup.children.forEach(function (o) { if (o.userData && (o.userData.ch === 'b' || o.userData.ch === 'B') && !o.userData.sinking) drawB++; });
+      if (gridB !== drawB) errs.push('kütle sayısı: durum ' + gridB + ', sahnede ' + drawB);
+      return errs;
+    },
     load: loadLevel, get state() { return state; }, get L() { return L; }, get busy() { return busy > 0 || Object.keys(balls).some(function (k) { return balls[k].visible && balls[k].userData.wp.length; }); },
     screenOf: function (x, y) {
       var v = new THREE.Vector3(wx(x), R_BALL, wz(y)).project(camera);
